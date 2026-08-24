@@ -25,12 +25,12 @@ st.markdown("""
 [data-testid="stSidebar"] > div:first-child { padding-top:1.2rem; }
 .block-container { padding-top:2.2rem; max-width:1400px; }
 h1,h2,h3 { color:var(--navy); }
-.hero-title { line-height:.9; margin:0; white-space:nowrap; }
-.hero-title .tabs { font-size:4.4rem; font-weight:800; color:var(--navy); letter-spacing:.02em; }
-.hero-title .lab { font-size:2.0rem; font-weight:700; color:var(--navy); margin-left:.18em; }
-.hero-sub { color:var(--teal); font-weight:700; letter-spacing:.08em; font-size:1.45rem; margin-top:12px; }
-.hero-rule { height:3px; width:100%; max-width:720px; background:linear-gradient(90deg,var(--teal),var(--navy)); margin:14px 0 12px; border-radius:3px; }
-.hero-caption { color:#667085; font-size:1.05rem; }
+.hero-title { line-height:.95; margin:0; white-space:nowrap; font-family:"Helvetica Neue",Arial,sans-serif; }
+.hero-title .tabs { font-size:4.15rem; font-weight:500; color:var(--navy); letter-spacing:.01em; }
+.hero-title .lab { font-size:1.85rem; font-weight:400; color:var(--navy); margin-left:.18em; }
+.hero-sub { color:var(--teal); font-weight:600; letter-spacing:.08em; font-size:1.35rem; margin-top:12px; }
+.hero-rule { height:2px; width:100%; max-width:720px; background:linear-gradient(90deg,var(--teal),var(--navy)); margin:14px 0 10px; border-radius:3px; }
+.hero-caption { color:#667085; font-size:1.02rem; font-style:italic; }
 .status-card { border-radius:14px; padding:20px 24px; margin:18px 0; border:1px solid #b7e2d2; background:linear-gradient(90deg,#effaf5,#f8fcfa); }
 .status-card strong { color:#08783f; font-size:1.2rem; }
 .info-card { border-radius:14px; padding:18px 24px; margin:18px 0; border:1px solid #bfd7f4; background:linear-gradient(90deg,#f2f7fd,#f9fbfe); color:var(--navy); }
@@ -42,8 +42,6 @@ h1,h2,h3 { color:var(--navy); }
 .stButton > button:hover, .stLinkButton > a:hover { border-color:var(--teal)!important; }
 [data-testid="stDataFrame"] { border-radius:12px; overflow:hidden; border:1px solid #dce3ea; }
 .sidebar-section { color:var(--teal); font-weight:800; font-size:1.15rem; margin-top:14px; }
-.cosmos { margin-top:36px; padding:22px 4px; color:var(--navy); border-top:1px solid #d9e2ea; }
-.cosmos strong { color:var(--teal); }
 .small-note { color:#667085; font-size:.9rem; }
 </style>
 """, unsafe_allow_html=True)
@@ -215,13 +213,8 @@ with st.sidebar:
             st.session_state.pop("token", None)
             st.rerun()
         st.markdown('<div class="small-note" style="margin-top:18px">Connected to <strong>Google Health</strong><br>Authorization active</div>', unsafe_allow_html=True)
-    st.markdown('<div class="cosmos">From the CVC Cosmos<br><strong>Turning movement into measurable data</strong></div>', unsafe_allow_html=True)
 
-logo_col, title_col = st.columns([1, 5], vertical_alignment="center")
-with logo_col:
-    st.image(LOGO_PATH, width=150)
-with title_col:
-    st.markdown('''<div class="hero-title"><span class="tabs">TABS</span><span class="lab">Lab</span></div><div class="hero-sub">FITBIT RESEARCH TOOL</div><div class="hero-rule"></div><div class="hero-caption">Charge 6 heart rate + minute-by-minute steps via Google Health API</div>''', unsafe_allow_html=True)
+st.markdown('''<div class="hero-title"><span class="tabs">TABS</span><span class="lab">Lab</span></div><div class="hero-sub">FITBIT RESEARCH TOOL</div><div class="hero-rule"></div><div class="hero-caption">From the CVC Cosmos · Turning movement into measurable data</div>''', unsafe_allow_html=True)
 
 if not connected:
     st.markdown('<div class="info-card"><strong>Connect Google Health</strong><br>Authorize read-only access to activity, fitness, and health measurements.</div>', unsafe_allow_html=True)
@@ -288,6 +281,3 @@ if not hr_df.empty or not steps_df.empty:
             st.dataframe(hr_df, use_container_width=True, hide_index=True)
         with st.expander("Raw step intervals"):
             st.dataframe(steps_df, use_container_width=True, hide_index=True)
-
-st.divider()
-st.caption("From the CVC Cosmos · Turning movement into measurable data")
