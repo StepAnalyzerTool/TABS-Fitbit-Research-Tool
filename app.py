@@ -216,7 +216,7 @@ with st.sidebar:
             st.rerun()
         st.markdown('<div class="small-note" style="margin-top:18px">Connected to <strong>Google Health</strong><br>Authorization active</div>', unsafe_allow_html=True)
 
-st.markdown('''<div class="hero-title"><span class="tabs">TABS</span><span class="lab">Lab</span></div><div class="hero-sub">FITBIT RESEARCH TOOL</div><div class="hero-rule"></div><div class="hero-caption">From the CVC Cosmos · Turning movement into measurable data</div>''', unsafe_allow_html=True)
+st.markdown('''<div class="hero-title"><span class="tabs">TABS</span><span class="lab">Lab</span></div><div class="hero-sub">FITBIT RESEARCH TOOL</div><div class="hero-rule"></div><div class="hero-caption">From the CVC Cosmos · Turning movement into data</div>''', unsafe_allow_html=True)
 
 if not connected:
     st.markdown('<div class="info-card"><strong>Connect Google Health</strong><br>Authorize read-only access to activity, fitness, and health measurements.</div>', unsafe_allow_html=True)
