@@ -43,6 +43,8 @@ h1,h2,h3 { color:var(--navy); }
 [data-testid="stDataFrame"] { border-radius:12px; overflow:hidden; border:1px solid #dce3ea; }
 .sidebar-section { color:var(--teal); font-weight:800; font-size:1.15rem; margin-top:14px; }
 .small-note { color:#667085; font-size:.9rem; }
+.sidebar-logo-wrap { display:flex; justify-content:center; align-items:center; width:100%; margin:0 auto 12px; }
+.sidebar-logo-wrap img { width:150px; max-width:70%; height:auto; display:block; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -205,7 +207,7 @@ if query_code and "token" not in st.session_state:
 connected = bool(access_token())
 
 with st.sidebar:
-    st.image(LOGO_PATH, width=150)
+    st.markdown('<div class="sidebar-logo-wrap"><img src="https://raw.githubusercontent.com/StepAnalyzerTool/TABS-Fitbit-Research-Tool/main/Logo.png" alt="TABS Lab Fitbit Research Tool logo"></div>', unsafe_allow_html=True)
     st.markdown('<div class="sidebar-section">DATA</div>', unsafe_allow_html=True)
     selected_date = st.date_input("Date to analyze", value=date.today())
     if connected:
