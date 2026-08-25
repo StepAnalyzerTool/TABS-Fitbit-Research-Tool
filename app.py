@@ -1,9 +1,10 @@
-import json, time
+import time
 from datetime import date, datetime
 from urllib.parse import urlencode
 import pandas as pd
 import requests
 import streamlit as st
+from telegram_widget import render_telegram_test
 
 API_BASE="https://health.googleapis.com/v4/users/me/dataTypes"
 AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"
@@ -17,68 +18,55 @@ def secret(n,d=""):
     try:return st.secrets[n]
     except:return d
 
-def oauth_cfg():return {"client_id":secret("GOOGLE_CLIENT_ID"),"client_secret":secret("GOOGLE_CLIENT_SECRET"),"redirect_uri":secret("GOOGLE_REDIRECT_URI","http://localhost:8501")}
+def cfg():return {"id":secret("GOOGLE_CLIENT_ID"),"secret":secret("GOOGLE_CLIENT_SECRET"),"redirect":secret("GOOGLE_REDIRECT_URI","http://localhost:8501")}
 def auth_url():
-    c=oauth_cfg();return AUTH_URL+"?"+urlencode({"client_id":c["client_id"],"redirect_uri":c["redirect_uri"],"response_type":"code","access_type":"offline","prompt":"consent","scope":" ".join(SCOPES)})
+    c=cfg();return AUTH_URL+"?"+urlencode({"client_id":c["id"],"redirect_uri":c["redirect"],"response_type":"code","access_type":"offline","prompt":"consent","scope":" ".join(SCOPES)})
 def exchange(code):
-    c=oauth_cfg();r=requests.post(TOKEN_URL,data={"code":code,"client_id":c["client_id"],"client_secret":c["client_secret"],"redirect_uri":c["redirect_uri"],"grant_type":"authorization_code"},timeout=30);r.raise_for_status();t=r.json();t["obtained_at"]=time.time();return t
-def access_token():
+    c=cfg();r=requests.post(TOKEN_URL,data={"code":code,"client_id":c["id"],"client_secret":c["secret"],"redirect_uri":c["redirect"],"grant_type":"authorization_code"},timeout=30);r.raise_for_status();t=r.json();t["obtained_at"]=time.time();return t
+def token():
     t=st.session_state.get("token")
     if not t:return None
     if time.time()-t.get("obtained_at",0)>t.get("expires_in",3600)-120 and t.get("refresh_token"):
-        c=oauth_cfg();r=requests.post(TOKEN_URL,data={"client_id":c["client_id"],"client_secret":c["client_secret"],"refresh_token":t["refresh_token"],"grant_type":"refresh_token"},timeout=30);r.raise_for_status();n=r.json();n["refresh_token"]=t["refresh_token"];n["obtained_at"]=time.time();st.session_state.token=n;t=n
+        c=cfg();r=requests.post(TOKEN_URL,data={"client_id":c["id"],"client_secret":c["secret"],"refresh_token":t["refresh_token"],"grant_type":"refresh_token"},timeout=30);r.raise_for_status();n=r.json();n["refresh_token"]=t["refresh_token"];n["obtained_at"]=time.time();st.session_state.token=n;t=n
     return t.get("access_token")
-def datapoints(kind,token):
-    url=f"{API_BASE}/{kind}/dataPoints";h={"Authorization":f"Bearer {token}","Accept":"application/json"};p={"pageSize":10000};out=[]
+def points(kind,access):
+    u=f"{API_BASE}/{kind}/dataPoints";h={"Authorization":f"Bearer {access}","Accept":"application/json"};p={"pageSize":10000};out=[]
     while True:
-        r=requests.get(url,headers=h,params=p,timeout=60);r.raise_for_status();j=r.json();out+=j.get("dataPoints",[]);n=j.get("nextPageToken")
+        r=requests.get(u,headers=h,params=p,timeout=60);r.raise_for_status();j=r.json();out+=j.get("dataPoints",[]);n=j.get("nextPageToken")
         if not n:break
         p["pageToken"]=n
     return out
-def hr_frame(points):
+def hr_frame(items):
     out=[]
-    for p in points:
+    for p in items:
         x=p.get("heartRate",{});c=x.get("sampleTime",{}).get("civilTime",{});d,t=c.get("date",{}),c.get("time",{})
         if d:out.append({"timestamp":datetime(d["year"],d["month"],d["day"],t.get("hours",0),t.get("minutes",0),t.get("seconds",0)),"heart_rate_bpm":int(x.get("beatsPerMinute",0)),"device":p.get("dataSource",{}).get("device",{}).get("displayName","")})
     return pd.DataFrame(out).sort_values("timestamp") if out else pd.DataFrame()
-def step_frame(points):
+def step_frame(items):
     out=[]
-    for p in points:
+    for p in items:
         x=p.get("steps",{});c=x.get("interval",{}).get("civilStartTime",{});d,t=c.get("date",{}),c.get("time",{})
         if d:out.append({"minute":datetime(d["year"],d["month"],d["day"],t.get("hours",0),t.get("minutes",0)),"steps_per_minute":int(x.get("count",0)),"device":p.get("dataSource",{}).get("device",{}).get("displayName","")})
     return pd.DataFrame(out).sort_values("minute") if out else pd.DataFrame()
-def summary(hr,steps,day):
-    a=pd.Timestamp(day);b=a+pd.Timedelta(days=1)
+def minute_summary(hr,steps,chosen):
+    a=pd.Timestamp(chosen);b=a+pd.Timedelta(days=1)
     if not hr.empty:
         h=hr[(hr.timestamp>=a)&(hr.timestamp<b)].copy();h["minute"]=h.timestamp.dt.floor("min");hm=h.groupby("minute").heart_rate_bpm.agg(hr_samples="count",hr_mean="mean",hr_min="min",hr_max="max").reset_index()
     else:hm=pd.DataFrame(columns=["minute","hr_samples","hr_mean","hr_min","hr_max"])
     sm=steps[(steps.minute>=a)&(steps.minute<b)][["minute","steps_per_minute"]] if not steps.empty else pd.DataFrame(columns=["minute","steps_per_minute"])
-    o=pd.merge(hm,sm,on="minute",how="outer").sort_values("minute");o["hr_mean"]=o["hr_mean"].round(1) if "hr_mean" in o else None;return o
-
-def tg(method,payload=None):
-    token=secret("TELEGRAM_BOT_TOKEN")
-    if not token:raise RuntimeError("TELEGRAM_BOT_TOKEN is missing from Streamlit Secrets.")
-    u=f"https://api.telegram.org/bot{token}/{method}";r=requests.get(u,params=payload or {},timeout=30) if method=="getUpdates" else requests.post(u,json=payload or {},timeout=30);r.raise_for_status();j=r.json()
-    if not j.get("ok"):raise RuntimeError(j.get("description","Telegram API error"))
-    return j.get("result",[])
-def tg_updates():return tg("getUpdates",{"limit":100,"timeout":0,"allowed_updates":json.dumps(["message","callback_query"])})
-def tg_chats(items):
-    out={}
-    for i in items:
-        cb=i.get("callback_query") or {};m=i.get("message") or cb.get("message") or {};c=m.get("chat") or {}
-        if c.get("type")!="private" or "id" not in c:continue
-        u=(i.get("message") or {}).get("from") or cb.get("from") or {};name=" ".join(filter(None,[u.get("first_name"),u.get("last_name")])).strip();out[str(c["id"])]=name or u.get("username") or str(c["id"])
+    out=pd.merge(hm,sm,on="minute",how="outer").sort_values("minute")
+    if "hr_mean" in out:out["hr_mean"]=out["hr_mean"].round(1)
     return out
 
-c=oauth_cfg()
-if not c["client_id"] or not c["client_secret"]:st.warning("Google OAuth credentials have not been configured in Streamlit secrets yet.");st.stop()
+c=cfg()
+if not c["id"] or not c["secret"]:st.warning("Google OAuth credentials have not been configured in Streamlit secrets yet.");st.stop()
 code=st.query_params.get("code")
 if code and "token" not in st.session_state:
     try:st.session_state.token=exchange(code);st.query_params.clear();st.rerun()
     except Exception as e:st.error(f"Google authorization failed: {e}")
-connected=bool(access_token())
+connected=bool(token())
 with st.sidebar:
-    st.markdown('<div class="sidebar-logo-wrap"><img src="https://raw.githubusercontent.com/StepAnalyzerTool/TABS-Fitbit-Research-Tool/main/Logo.png"></div>',unsafe_allow_html=True);st.markdown('<div class="sidebar-section">DATA</div>',unsafe_allow_html=True);selected_date=st.date_input("Date to analyze",value=date.today())
+    st.markdown('<div class="sidebar-logo-wrap"><img src="https://raw.githubusercontent.com/StepAnalyzerTool/TABS-Fitbit-Research-Tool/main/Logo.png"></div>',unsafe_allow_html=True);st.markdown('<div class="sidebar-section">DATA</div>',unsafe_allow_html=True);chosen=st.date_input("Date to analyze",value=date.today())
     if connected:
         if st.button("Disconnect this session",use_container_width=True):st.session_state.pop("token",None);st.rerun()
         st.markdown('<div class="small-note">Connected to <strong>Google Health</strong><br>Authorization active</div>',unsafe_allow_html=True)
@@ -89,47 +77,25 @@ else:
     st.markdown('<div class="status-card"><strong>✓ Google Health connected</strong><br>Your Charge 6 data is securely linked and ready.</div>',unsafe_allow_html=True)
     if st.button("Retrieve Charge 6 data",type="primary"):
         try:
-            with st.spinner("Retrieving all heart-rate and step data..."):hp=datapoints("heart-rate",access_token());sp=datapoints("steps",access_token())
+            with st.spinner("Retrieving all heart-rate and step data..."):hp=points("heart-rate",token());sp=points("steps",token())
             st.session_state.hr_df=hr_frame(hp);st.session_state.steps_df=step_frame(sp);st.session_state.last_retrieval=(len(hp),len(sp))
         except Exception as e:st.error(f"Could not retrieve data: {e}")
     if "last_retrieval" in st.session_state:
         a,b=st.session_state.last_retrieval;st.markdown(f'<div class="info-card"><strong>Retrieved {a:,} heart-rate observations and {b:,} step intervals.</strong></div>',unsafe_allow_html=True)
     hr=st.session_state.get("hr_df",pd.DataFrame());steps=st.session_state.get("steps_df",pd.DataFrame())
     if not hr.empty or not steps.empty:
-        s=summary(hr,steps,selected_date);st.markdown(f"## Minute-level summary — {selected_date:%B %d, %Y}")
+        s=minute_summary(hr,steps,chosen);st.markdown(f"## Minute-level summary — {chosen:%B %d, %Y}")
         if s.empty:st.info("No observations were returned for this date.")
         else:
-            x,y,z=st.columns(3);x.metric("Minutes with HR",int(s.hr_samples.notna().sum()));y.metric("Minutes with steps",int(s.steps_per_minute.notna().sum()));z.metric("Total recorded steps",int(s.steps_per_minute.fillna(0).sum()));st.dataframe(s,use_container_width=True,hide_index=True);st.download_button("Download minute-level CSV",s.to_csv(index=False).encode(),file_name=f"TABS_Fitbit_{selected_date.isoformat()}_minute_summary.csv",mime="text/csv")
+            x,y,z=st.columns(3);x.metric("Minutes with HR",int(s.hr_samples.notna().sum()));y.metric("Minutes with steps",int(s.steps_per_minute.notna().sum()));z.metric("Total recorded steps",int(s.steps_per_minute.fillna(0).sum()));st.dataframe(s,use_container_width=True,hide_index=True);st.download_button("Download minute-level CSV",s.to_csv(index=False).encode(),file_name=f"TABS_Fitbit_{chosen.isoformat()}_minute_summary.csv",mime="text/csv")
             if not hr.empty:
-                d=pd.Timestamp(selected_date);h=hr[(hr.timestamp>=d)&(hr.timestamp<d+pd.Timedelta(days=1))]
+                d=pd.Timestamp(chosen);h=hr[(hr.timestamp>=d)&(hr.timestamp<d+pd.Timedelta(days=1))]
                 if not h.empty:st.subheader("Heart rate");st.line_chart(h.set_index("timestamp")["heart_rate_bpm"])
             if not steps.empty:
-                d=pd.Timestamp(selected_date);q=steps[(steps.minute>=d)&(steps.minute<d+pd.Timedelta(days=1))]
+                d=pd.Timestamp(chosen);q=steps[(steps.minute>=d)&(steps.minute<d+pd.Timedelta(days=1))]
                 if not q.empty:st.subheader("Steps per minute");st.bar_chart(q.set_index("minute")["steps_per_minute"])
             with st.expander("Raw heart-rate observations"):st.dataframe(hr,use_container_width=True,hide_index=True)
             with st.expander("Raw step intervals"):st.dataframe(steps,use_container_width=True,hide_index=True)
 
 st.divider()
-with st.expander("💬 Telegram Notification Test"):
-    st.write("Test interactive notifications before connecting them to Fitbit criteria.")
-    if not secret("TELEGRAM_BOT_TOKEN"):st.error("Telegram bot token is not configured in Streamlit Secrets.")
-    else:
-        if st.button("1. Find Telegram chats",type="primary"):
-            try:st.session_state.tg_updates=tg_updates()
-            except Exception as e:st.error(str(e))
-        items=st.session_state.get("tg_updates",[]);chats=tg_chats(items)
-        chat_id=None
-        if chats:
-            chat_id=st.selectbox("Private chat",list(chats),format_func=lambda v:chats[v]);st.session_state.tg_chat_id=chat_id;st.success(f"Found: {chats[chat_id]}")
-        else:chat_id=st.session_state.get("tg_chat_id")
-        if chat_id:
-            message=st.text_area("Message","TABS Activity test: This is your first automated activity notification.")
-            if st.button("2. Send test notification",type="primary"):
-                keyboard={"inline_keyboard":[[{"text":"👍 Got it","callback_data":"got_it"},{"text":"⏰ Remind me later","callback_data":"remind_me_later"}]]}
-                try:tg("sendMessage",{"chat_id":chat_id,"text":message,"reply_markup":keyboard});st.success("Sent. Tap a button in Telegram on your phone.")
-                except Exception as e:st.error(str(e))
-            if st.button("3. Check button response"):
-                try:
-                    callbacks=[i["callback_query"] for i in tg_updates() if i.get("callback_query")]
-                    if callbacks:
-                        cb=callbacks[-1];st.success(f"Received: {cb.get('data')}");st.write({"response
+render_telegram_test()
