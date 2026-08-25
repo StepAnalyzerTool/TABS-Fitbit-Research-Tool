@@ -8,10 +8,10 @@ from time_utils import now_eastern
 def render_activity_alert_test(steps_df):
     with st.expander("🚶 Activity Alert Test", expanded=False):
         st.write("Prototype step-dependent Telegram contingencies using the Fitbit data currently loaded in this app.")
-        token=st.secrets.get("TELEGRAM_BOT_TOKEN",""); chat_id=st.session_state.get("tg_chat_id")
-        if not token: st.error("Telegram bot token is not configured."); return
-        if not chat_id: st.info("First use Telegram Notification Test to find/select your Telegram chat."); return
-        if steps_df is None or steps_df.empty: st.info("Retrieve Fitbit data first so the alert test has step data to evaluate."); return
+        token=st.secrets.get("TELEGRAM_BOT_TOKEN","");chat_id=st.session_state.get("tg_chat_id")
+        if not token:st.error("Telegram bot token is not configured.");return
+        if not chat_id:st.info("First use Telegram Notification Test to find/select your Telegram chat.");return
+        if steps_df is None or steps_df.empty:st.info("Retrieve Fitbit data first so the alert test has step data to evaluate.");return
         base=f"https://api.telegram.org/bot{token}/"
         def post(method,payload):
             r=requests.post(base+method,json=payload,timeout=30);r.raise_for_status();body=r.json()
@@ -25,12 +25,12 @@ def render_activity_alert_test(steps_df):
         if st.button("Evaluate step-alert rules now",type="primary"):
             now=now_eastern();reached=(total_steps//500)*500;milestones=list(range(500,reached+1,500));new=[m for m in milestones if m not in st.session_state.step_milestones_sent]
             if new:
-                milestone=max(new);text=f"🎉 Good job! You reached another 500 steps! Total for today is {total_steps:,} steps.";keyboard={"inline_keyboard":[[{"text":"👍 Got it","callback_data":f"step_got_it:{milestone}:{int(time.time())}"}]]};result=post("sendMessage",{"chat_id":chat_id,"text":text,"reply_markup":keyboard});st.session_state.step_milestones_sent.update(milestones);st.session_state.activity_alert_log.append({"type":"500-step milestone","criterion":milestone,"criterion_time":"available at check","sent_time":now.strftime("%Y-%m-%d %I:%M:%S %p %Z"),"message_id":result.get("message_id"),"response":"","response_time":"","latency":""});st.success(f"Sent milestone alert. Current total: {total_steps:,} steps.")
+                milestone=max(new);text=f"🎉 Good job! You reached another 500 steps! Total for today is {total_steps:,} steps.";keyboard={"inline_keyboard":[[{"text":"👍 Got it","callback_data":f"step_got_it:{milestone}:{int(time.time())}"}]]};result=post("sendMessage",{"chat_id":chat_id,"text":text,"reply_markup":keyboard});st.session_state.step_milestones_sent.update(milestones);st.session_state.activity_alert_log.append({"type":"500-step milestone","criterion":milestone,"criterion_time":"available at check","sent_time":now.strftime("%Y-%m-%d %I:%M:%S %p %Z"),"sent_epoch":now.timestamp(),"message_id":result.get("message_id"),"response":"","response_time":"","latency":""});st.success(f"Sent milestone alert. Current total: {total_steps:,} steps.")
             else:st.info("No new 500-step milestone to send at this check.")
             if not day.empty:
                 local_now=now.replace(tzinfo=None);day["hour"]=day["minute"].dt.floor("h");hourly=day.groupby("hour")["steps_per_minute"].sum();completed=hourly[hourly.index+timedelta(hours=1)<=local_now];eligible=[(h,int(c)) for h,c in completed.items() if c<=10 and str(h) not in st.session_state.low_hours_sent]
                 if eligible:
-                    hour,count=eligible[-1];label=f"{hour.strftime('%-I:%M %p')}–{(hour+timedelta(hours=1)).strftime('%-I:%M %p')}";text=f"Don't forget to move! Only {count} steps were recorded from {label}.";keyboard={"inline_keyboard":[[{"text":"🏃 On it!","callback_data":f"on_it:{int(time.time())}"},{"text":"⏰ Remind me later","callback_data":f"remind30:{int(time.time())}"}]]};result=post("sendMessage",{"chat_id":chat_id,"text":text,"reply_markup":keyboard});st.session_state.low_hours_sent.add(str(hour));st.session_state.activity_alert_log.append({"type":"low-activity reminder","criterion":f"{label}: {count} steps","criterion_time":str(hour+timedelta(hours=1)),"sent_time":now.strftime("%Y-%m-%d %I:%M:%S %p %Z"),"message_id":result.get("message_id"),"response":"","response_time":"","latency":""});st.success(f"Sent low-activity reminder for {label}.")
+                    hour,count=eligible[-1];label=f"{hour.strftime('%-I:%M %p')}–{(hour+timedelta(hours=1)).strftime('%-I:%M %p')}";text=f"Don't forget to move! Only {count} steps were recorded from {label}.";keyboard={"inline_keyboard":[[{"text":"🏃 On it!","callback_data":f"on_it:{int(time.time())}"},{"text":"⏰ Remind me later","callback_data":f"remind30:{int(time.time())}"}]]};result=post("sendMessage",{"chat_id":chat_id,"text":text,"reply_markup":keyboard});st.session_state.low_hours_sent.add(str(hour));st.session_state.activity_alert_log.append({"type":"low-activity reminder","criterion":f"{label}: {count} steps","criterion_time":str(hour+timedelta(hours=1)),"sent_time":now.strftime("%Y-%m-%d %I:%M:%S %p %Z"),"sent_epoch":now.timestamp(),"message_id":result.get("message_id"),"response":"","response_time":"","latency":""});st.success(f"Sent low-activity reminder for {label}.")
         if st.button("Check activity-alert responses"):
             try:
                 found=0
@@ -40,7 +40,11 @@ def render_activity_alert_test(steps_df):
                     if not (data.startswith("step_got_it:") or data.startswith("on_it:") or data.startswith("remind30:")):continue
                     matching=next((row for row in reversed(st.session_state.activity_alert_log) if row.get("message_id")==mid),None)
                     if matching:
-                        response_time=now_eastern();sent=datetime.strptime(matching["sent_time"],"%Y-%m-%d %I:%M:%S %p %Z");seconds=max(0,int((response_time.replace(tzinfo=None)-sent).total_seconds()));matching["response"]={"step_got_it":"Got it","on_it":"On it!","remind30":"Remind me later"}.get(data.split(":")[0],data);matching["response_time"]=response_time.strftime("%Y-%m-%d %I:%M:%S %p %Z");matching["latency"]=f"{seconds//60}m {seconds%60}s"
+                        response_time=now_eastern();sent_epoch=matching.get("sent_epoch")
+                        if sent_epoch is None:
+                            # Backward compatibility for rows created before epoch timestamps were added.
+                            sent_text=matching.get("sent_time","");parts=sent_text.rsplit(" ",1);sent_naive=datetime.strptime(parts[0],"%Y-%m-%d %I:%M:%S %p");sent_epoch=sent_naive.replace(tzinfo=response_time.tzinfo).timestamp()
+                        seconds=max(0,int(response_time.timestamp()-float(sent_epoch)));matching["response"]={"step_got_it":"Got it","on_it":"On it!","remind30":"Remind me later"}.get(data.split(":")[0],data);matching["response_time"]=response_time.strftime("%Y-%m-%d %I:%M:%S %p %Z");matching["latency"]=f"{seconds//60}m {seconds%60}s"
                         try:post("editMessageReplyMarkup",{"chat_id":chat_id,"message_id":mid,"reply_markup":{"inline_keyboard":[]}})
                         except Exception:pass
                         found+=1
