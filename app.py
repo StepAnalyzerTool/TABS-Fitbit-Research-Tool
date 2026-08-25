@@ -7,7 +7,6 @@ import requests
 import streamlit as st
 from telegram_widget import render_telegram_test
 from activity_alert_widget import render_activity_alert_test
-from time_diagnostics import render_time_diagnostics
 
 API_BASE="https://health.googleapis.com/v4/users/me/dataTypes"
 AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"
@@ -40,20 +39,22 @@ def points(kind,access):
 def utc_to_eastern(value):
     if not value:return None
     return datetime.fromisoformat(value.replace("Z","+00:00")).astimezone(EASTERN).replace(tzinfo=None)
+def civil_datetime(civil):
+    d,t=civil.get("date",{}),civil.get("time",{})
+    if not d:return None
+    return datetime(d["year"],d["month"],d["day"],t.get("hours",0),t.get("minutes",0),t.get("seconds",0))
 def hr_frame(items):
     out=[]
     for p in items:
-        x=p.get("heartRate",{});sample=x.get("sampleTime",{});ts=utc_to_eastern(sample.get("time"))
-        if ts is None:
-            c=sample.get("civilTime",{});d,t=c.get("date",{}),c.get("time",{});ts=datetime(d["year"],d["month"],d["day"],t.get("hours",0),t.get("minutes",0),t.get("seconds",0)) if d else None
+        x=p.get("heartRate",{});sample=x.get("sampleTime",{});ts=civil_datetime(sample.get("civilTime",{}))
+        if ts is None:ts=utc_to_eastern(sample.get("time"))
         if ts:out.append({"timestamp":ts,"heart_rate_bpm":int(x.get("beatsPerMinute",0)),"device":p.get("dataSource",{}).get("device",{}).get("displayName","")})
     return pd.DataFrame(out).sort_values("timestamp") if out else pd.DataFrame()
 def step_frame(items):
     out=[]
     for p in items:
         x=p.get("steps",{});interval=x.get("interval",{});ts=utc_to_eastern(interval.get("startTime"))
-        if ts is None:
-            c=interval.get("civilStartTime",{});d,t=c.get("date",{}),c.get("time",{});ts=datetime(d["year"],d["month"],d["day"],t.get("hours",0),t.get("minutes",0)) if d else None
+        if ts is None:ts=civil_datetime(interval.get("civilStartTime",{}))
         if ts:out.append({"minute":ts.replace(second=0,microsecond=0),"steps_per_minute":int(x.get("count",0)),"device":p.get("dataSource",{}).get("device",{}).get("displayName","")})
     return pd.DataFrame(out).sort_values("minute") if out else pd.DataFrame()
 def minute_summary(hr,steps,chosen):
@@ -85,7 +86,7 @@ else:
     if st.button("Retrieve Charge 6 data",type="primary"):
         try:
             with st.spinner("Retrieving all heart-rate and step data..."):hp=points("heart-rate",token());sp=points("steps",token())
-            st.session_state.raw_hr_points=hp;st.session_state.raw_step_points=sp;st.session_state.hr_df=hr_frame(hp);st.session_state.steps_df=step_frame(sp);st.session_state.last_retrieval=(len(hp),len(sp))
+            st.session_state.hr_df=hr_frame(hp);st.session_state.steps_df=step_frame(sp);st.session_state.last_retrieval=(len(hp),len(sp))
         except Exception as e:st.error(f"Could not retrieve data: {e}")
     if "last_retrieval" in st.session_state:
         a,b=st.session_state.last_retrieval;st.markdown(f'<div class="info-card"><strong>Retrieved {a:,} heart-rate observations and {b:,} step intervals.</strong></div>',unsafe_allow_html=True)
@@ -103,5 +104,4 @@ else:
                 if not q.empty:st.subheader("Steps per minute");st.bar_chart(q.set_index("minute")["steps_per_minute"])
             with st.expander("Raw heart-rate observations"):st.dataframe(hr,use_container_width=True,hide_index=True)
             with st.expander("Raw step intervals"):st.dataframe(steps,use_container_width=True,hide_index=True)
-    render_time_diagnostics(st.session_state.get("raw_hr_points",[]),st.session_state.get("raw_step_points",[]))
 st.divider();render_telegram_test();render_activity_alert_test(st.session_state.get("steps_df",pd.DataFrame()))
