@@ -5,6 +5,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from telegram_widget import render_telegram_test
+from activity_alert_widget import render_activity_alert_test
 
 API_BASE="https://health.googleapis.com/v4/users/me/dataTypes"
 AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"
@@ -99,3 +100,4 @@ else:
 
 st.divider()
 render_telegram_test()
+render_activity_alert_test(st.session_state.get("steps_df",pd.DataFrame()))
