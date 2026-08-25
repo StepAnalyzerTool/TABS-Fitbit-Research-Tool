@@ -7,6 +7,7 @@ import requests
 import streamlit as st
 from telegram_widget import render_telegram_test
 from activity_alert_widget import render_activity_alert_test
+from time_utils import now_eastern
 
 API_BASE="https://health.googleapis.com/v4/users/me/dataTypes"
 AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"
@@ -66,6 +67,9 @@ def minute_summary(hr,steps,chosen):
     out=pd.merge(hm,sm,on="minute",how="outer").sort_values("minute")
     if "hr_mean" in out:out["hr_mean"]=out["hr_mean"].round(1)
     return out
+def age_text(latest,now_local):
+    if latest is None:return "No data"
+    seconds=max(0,int((now_local.replace(tzinfo=None)-latest).total_seconds()));return f"{seconds//3600}h {(seconds%3600)//60}m {seconds%60}s"
 c=cfg()
 if not c["id"] or not c["secret"]:st.warning("Google OAuth credentials have not been configured in Streamlit secrets yet.");st.stop()
 code=st.query_params.get("code")
@@ -96,12 +100,13 @@ else:
         if s.empty:st.info("No observations were returned for this date.")
         else:
             x,y,z=st.columns(3);x.metric("Minutes with HR",int(s.hr_samples.notna().sum()));y.metric("Minutes with steps",int(s.steps_per_minute.notna().sum()));z.metric("Total recorded steps",int(s.steps_per_minute.fillna(0).sum()));st.dataframe(s,use_container_width=True,hide_index=True);st.download_button("Download minute-level CSV",s.to_csv(index=False).encode(),file_name=f"TABS_Fitbit_{chosen.isoformat()}_minute_summary.csv",mime="text/csv")
-            if not hr.empty:
-                d=pd.Timestamp(chosen);h=hr[(hr.timestamp>=d)&(hr.timestamp<d+pd.Timedelta(days=1))]
-                if not h.empty:st.subheader("Heart rate");st.line_chart(h.set_index("timestamp")["heart_rate_bpm"])
-            if not steps.empty:
-                d=pd.Timestamp(chosen);q=steps[(steps.minute>=d)&(steps.minute<d+pd.Timedelta(days=1))]
-                if not q.empty:st.subheader("Steps per minute");st.bar_chart(q.set_index("minute")["steps_per_minute"])
             with st.expander("Raw heart-rate observations"):st.dataframe(hr,use_container_width=True,hide_index=True)
             with st.expander("Raw step intervals"):st.dataframe(steps,use_container_width=True,hide_index=True)
+        now_local=now_eastern();latest_hr=hr.timestamp.max().to_pydatetime() if not hr.empty else None;latest_step=steps.minute.max().to_pydatetime() if not steps.empty else None
+        with st.expander("🕒 Latest Data Timing Check",expanded=True):
+            st.write(f"**Current app time:** {now_local.strftime('%Y-%m-%d %I:%M:%S %p %Z')}")
+            st.write(f"**Latest HR observation:** {latest_hr.strftime('%Y-%m-%d %I:%M:%S %p') if latest_hr else 'No data'}")
+            st.write(f"**Age of latest HR data:** {age_text(latest_hr,now_local)}")
+            st.write(f"**Latest step interval:** {latest_step.strftime('%Y-%m-%d %I:%M:%S %p') if latest_step else 'No data'}")
+            st.write(f"**Age of latest step data:** {age_text(latest_step,now_local)}")
 st.divider();render_telegram_test();render_activity_alert_test(st.session_state.get("steps_df",pd.DataFrame()))
