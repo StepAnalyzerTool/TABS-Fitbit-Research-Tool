@@ -7,6 +7,7 @@ import requests
 import streamlit as st
 from telegram_widget import render_telegram_test
 from activity_alert_widget import render_activity_alert_test
+from time_diagnostics import render_time_diagnostics
 
 API_BASE="https://health.googleapis.com/v4/users/me/dataTypes"
 AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"
@@ -15,7 +16,6 @@ EASTERN=ZoneInfo("America/New_York")
 SCOPES=["https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly","https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly"]
 st.set_page_config(page_title="TABS Lab Fitbit Research Tool",page_icon="⌚",layout="wide")
 st.markdown('''<style>:root{--navy:#082b57;--teal:#0a8b98;--ink:#13233a}.stApp{background:#fff;color:var(--ink)}[data-testid="stSidebar"]{background:#f7fafc;border-right:1px solid #dce5ec}.block-container{padding-top:2.2rem;max-width:1400px}h1,h2,h3{color:var(--navy)}.hero-title{line-height:.95;white-space:nowrap;font-family:"Helvetica Neue",Arial,sans-serif}.hero-title .tabs{font-size:4.15rem;font-weight:500;color:var(--navy)}.hero-title .lab{font-size:1.85rem;font-weight:400;color:var(--navy);margin-left:.18em}.hero-sub{color:var(--teal);font-weight:600;letter-spacing:.08em;font-size:1.35rem;margin-top:12px}.hero-rule{height:2px;max-width:720px;background:linear-gradient(90deg,var(--teal),var(--navy));margin:14px 0 10px}.hero-caption{color:#667085;font-size:1.02rem;font-style:italic}.status-card{border-radius:14px;padding:20px 24px;margin:18px 0;border:1px solid #b7e2d2;background:#effaf5}.status-card strong{color:#08783f;font-size:1.2rem}.info-card{border-radius:14px;padding:18px 24px;margin:18px 0;border:1px solid #bfd7f4;background:#f2f7fd;color:var(--navy)}[data-testid="stMetric"]{border:1px solid #dce3ea;border-radius:14px;padding:18px 20px}.stButton>button[kind="primary"],.stLinkButton>a{background:var(--navy)!important;border-color:var(--navy)!important;border-radius:10px!important;font-weight:700!important}.sidebar-section{color:var(--teal);font-weight:800;font-size:1.15rem;margin-top:14px}.small-note{color:#667085;font-size:.9rem}.sidebar-logo-wrap{display:flex;justify-content:center;width:100%;margin:0 auto 12px}.sidebar-logo-wrap img{width:150px;max-width:70%;height:auto}</style>''',unsafe_allow_html=True)
-
 def secret(n,d=""):
     try:return st.secrets[n]
     except:return d
@@ -43,7 +43,7 @@ def utc_to_eastern(value):
 def hr_frame(items):
     out=[]
     for p in items:
-        x=p.get("heartRate",{}); sample=x.get("sampleTime",{}); ts=utc_to_eastern(sample.get("time"))
+        x=p.get("heartRate",{});sample=x.get("sampleTime",{});ts=utc_to_eastern(sample.get("time"))
         if ts is None:
             c=sample.get("civilTime",{});d,t=c.get("date",{}),c.get("time",{});ts=datetime(d["year"],d["month"],d["day"],t.get("hours",0),t.get("minutes",0),t.get("seconds",0)) if d else None
         if ts:out.append({"timestamp":ts,"heart_rate_bpm":int(x.get("beatsPerMinute",0)),"device":p.get("dataSource",{}).get("device",{}).get("displayName","")})
@@ -51,7 +51,7 @@ def hr_frame(items):
 def step_frame(items):
     out=[]
     for p in items:
-        x=p.get("steps",{}); interval=x.get("interval",{});ts=utc_to_eastern(interval.get("startTime"))
+        x=p.get("steps",{});interval=x.get("interval",{});ts=utc_to_eastern(interval.get("startTime"))
         if ts is None:
             c=interval.get("civilStartTime",{});d,t=c.get("date",{}),c.get("time",{});ts=datetime(d["year"],d["month"],d["day"],t.get("hours",0),t.get("minutes",0)) if d else None
         if ts:out.append({"minute":ts.replace(second=0,microsecond=0),"steps_per_minute":int(x.get("count",0)),"device":p.get("dataSource",{}).get("device",{}).get("displayName","")})
@@ -62,10 +62,9 @@ def minute_summary(hr,steps,chosen):
         h=hr[(hr.timestamp>=a)&(hr.timestamp<b)].copy();h["minute"]=h.timestamp.dt.floor("min");hm=h.groupby("minute").heart_rate_bpm.agg(hr_samples="count",hr_mean="mean",hr_min="min",hr_max="max").reset_index()
     else:hm=pd.DataFrame(columns=["minute","hr_samples","hr_mean","hr_min","hr_max"])
     sm=steps[(steps.minute>=a)&(steps.minute<b)][["minute","steps_per_minute"]] if not steps.empty else pd.DataFrame(columns=["minute","steps_per_minute"])
-    out=pd.merge(hm,sm,on="minute",how="outer").sort_values("minute");
+    out=pd.merge(hm,sm,on="minute",how="outer").sort_values("minute")
     if "hr_mean" in out:out["hr_mean"]=out["hr_mean"].round(1)
     return out
-
 c=cfg()
 if not c["id"] or not c["secret"]:st.warning("Google OAuth credentials have not been configured in Streamlit secrets yet.");st.stop()
 code=st.query_params.get("code")
@@ -86,7 +85,7 @@ else:
     if st.button("Retrieve Charge 6 data",type="primary"):
         try:
             with st.spinner("Retrieving all heart-rate and step data..."):hp=points("heart-rate",token());sp=points("steps",token())
-            st.session_state.hr_df=hr_frame(hp);st.session_state.steps_df=step_frame(sp);st.session_state.last_retrieval=(len(hp),len(sp))
+            st.session_state.raw_hr_points=hp;st.session_state.raw_step_points=sp;st.session_state.hr_df=hr_frame(hp);st.session_state.steps_df=step_frame(sp);st.session_state.last_retrieval=(len(hp),len(sp))
         except Exception as e:st.error(f"Could not retrieve data: {e}")
     if "last_retrieval" in st.session_state:
         a,b=st.session_state.last_retrieval;st.markdown(f'<div class="info-card"><strong>Retrieved {a:,} heart-rate observations and {b:,} step intervals.</strong></div>',unsafe_allow_html=True)
@@ -104,4 +103,5 @@ else:
                 if not q.empty:st.subheader("Steps per minute");st.bar_chart(q.set_index("minute")["steps_per_minute"])
             with st.expander("Raw heart-rate observations"):st.dataframe(hr,use_container_width=True,hide_index=True)
             with st.expander("Raw step intervals"):st.dataframe(steps,use_container_width=True,hide_index=True)
+    render_time_diagnostics(st.session_state.get("raw_hr_points",[]),st.session_state.get("raw_step_points",[]))
 st.divider();render_telegram_test();render_activity_alert_test(st.session_state.get("steps_df",pd.DataFrame()))
